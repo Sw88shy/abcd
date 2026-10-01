@@ -40,31 +40,29 @@ int main() {
         require(nav.targetId() == 1, "Brief miss should preserve target lock");
         confirm(tracker, {person(0.5, 0.5), person(0.85)}, 0.6);
         nav.update(tracker, 0.8);
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < 110; ++i) {
             const double now = 0.9 + i * 0.1;
             tracker.update({person(0.5, 0.7), person(0.85)}, now);
-            require(stopped(nav.update(tracker, now)), "Close person should stop motors");
+            command = nav.update(tracker, now);
+            require(command.left == 0.3 && command.right == 0.3,
+                    "Close target must retain forward power, without arrival or waiting");
         }
-        require(tracker.tracks()[0].visited && nav.status().find("Waiting") == 0,
-                "Arrival should mark ID visited and start waiting");
-        for (int i = 0; i < 99; ++i) {
-            const double now = 1.2 + i * 0.1;
-            tracker.update({person(0.5, 0.7), person(0.85)}, now);
-            require(stopped(nav.update(tracker, now)), "Wait must keep both motors stopped for ten seconds");
-        }
-        tracker.update({person(0.5, 0.7), person(0.85)}, 11.11);
-        command = nav.update(tracker, 11.11);
-        require(nav.targetId() == 2 && command.left > 0 && command.right < 0,
-                "After waiting choose unvisited visible ID and turn toward it");
-        tracker.update({}, 11.2);
-        require(stopped(nav.update(tracker, 11.2)), "Lost second target must stop");
-        tracker.update({}, 13.3);
-        require(stopped(nav.update(tracker, 13.3)), "Expired target should stop before searching");
+        require(!tracker.tracks()[0].visited && nav.targetId() == 1,
+                "Continuous following must stay locked on the same ID");
+        tracker.update({person(0.85)}, 12.0);
+        require(stopped(nav.update(tracker, 12.0)), "Lost target must stop");
+        confirm(tracker, {person(0.85)}, 14.1);
+        require(stopped(nav.update(tracker, 14.3)), "Expired target should stop before selecting another");
         require(nav.targetId() == -1, "Expired target lock must clear");
-        command = nav.update(tracker, 13.4);
+        command = nav.update(tracker, 14.4);
+        require(nav.targetId() == 3 && command.left > 0 && command.right > 0,
+                "A new confirmed person should be followed after target loss");
+        tracker.update({}, 16.5);
+        nav.update(tracker, 16.5);
+        command = nav.update(tracker, 16.6);
         require(command.left > 0 && command.right < 0, "Resume search after target expires");
-        confirm(tracker, {person(0.5)}, 13.5);
-        require(tracker.tracks()[0].id == 3, "Expired IDs must never be recycled");
+        confirm(tracker, {person(0.5)}, 16.7);
+        require(tracker.tracks()[0].id == 4, "Expired IDs must never be recycled");
 
         PersonTracker visited;
         PersonNavigation searching;
@@ -77,7 +75,8 @@ int main() {
         PersonNavigation turning;
         confirm(left, {person(0.1)}, 0);
         command = turning.update(left, 0.2);
-        require(command.left < 0 && command.right > 0, "Person left of camera should cause left pivot");
+        require(command.left > 0 && command.left < command.right,
+                "Person left of camera should steer left while both tracks drive forward");
         bool invalid = false;
         try { PersonNavigation bad(0.3, 0.22, 0); } catch (const std::invalid_argument&) { invalid = true; }
         require(invalid, "Invalid configuration must fail");

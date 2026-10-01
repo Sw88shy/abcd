@@ -37,10 +37,8 @@ public:
     std::string status() const;
     int targetId() const { return targetId_; }
 private:
-    enum class State { Search, Approach, Wait };
+    enum class State { Search, Approach };
     State state_ = State::Search;
     int targetId_ = -1;
-    int closeFrames_ = 0;
-    double waitUntil_ = 0;
-    double speed_, turnSpeed_, stopHeight_;
+    double speed_, turnSpeed_;
 };

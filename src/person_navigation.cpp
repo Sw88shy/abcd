@@ -60,7 +60,7 @@ void PersonTracker::markVisited(int id) {
 }
 
 PersonNavigation::PersonNavigation(double speed, double turnSpeed, double stopHeight)
-    : speed_(speed), turnSpeed_(turnSpeed), stopHeight_(stopHeight) {
+    : speed_(speed), turnSpeed_(turnSpeed) {
     if (!std::isfinite(speed) || speed <= 0 || speed > 1 ||
         !std::isfinite(turnSpeed) || turnSpeed <= 0 || turnSpeed > 1 ||
         !std::isfinite(stopHeight) || stopHeight <= 0 || stopHeight > 1) {
@@ -69,11 +69,6 @@ PersonNavigation::PersonNavigation(double speed, double turnSpeed, double stopHe
 }
 
 DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
-    if (state_ == State::Wait) {
-        if (now < waitUntil_) return {};
-        state_ = State::Search;
-        targetId_ = -1;
-    }
     const auto& tracks = tracker.tracks();
     if (state_ == State::Search) {
         const PersonTrack* selected = nullptr;
@@ -84,7 +79,6 @@ DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
         }
         if (!selected) return {turnSpeed_, -turnSpeed_};
         targetId_ = selected->id;
-        closeFrames_ = 0;
         state_ = State::Approach;
     }
     const auto target = std::find_if(tracks.begin(), tracks.end(), [&](const PersonTrack& t) {
@@ -93,36 +87,19 @@ DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
     if (target == tracks.end()) {
         state_ = State::Search;
         targetId_ = -1;
-        closeFrames_ = 0;
         return {};  // Stop before searching on the next frame.
     }
     if (!target->visible || target->hits < 3) {
-        closeFrames_ = 0;
         return {};  // Never drive toward a stale box.
     }
-    // Image size is a proximity heuristic, not a distance measurement.
-    if (target->box.height >= stopHeight_) {
-        if (++closeFrames_ >= 3) {
-            tracker.markVisited(targetId_);
-            state_ = State::Wait;
-            waitUntil_ = now + 10.0;
-        }
-        return {};
-    }
-    closeFrames_ = 0;
-    const double error = 2 * (target->box.x + target->box.width / 2 - 0.5);
-    if (std::abs(error) > 0.25) {
-        const double turn = std::copysign(turnSpeed_, error);
-        return {turn, -turn};
-    }
-    const double forward = speed_ * std::clamp(1 - target->box.height / stopHeight_, 0.5, 1.0);
-    const double correction = error * speed_;
-    return {std::clamp(forward + correction, 0.0, speed_),
-            std::clamp(forward - correction, 0.0, speed_)};
+    // Continuous following: size never triggers arrival or reduces power.
+    // Both tracks run forward; the inside track keeps at least 75% of speed.
+    const double error = std::clamp(2 * (target->box.x + target->box.width / 2 - 0.5), -1.0, 1.0);
+    return {speed_ * (1.0 - 0.25 * std::max(-error, 0.0)),
+            speed_ * (1.0 - 0.25 * std::max(error, 0.0))};
 }
 
 std::string PersonNavigation::status() const {
     if (state_ == State::Search) return "Searching for unvisited ID";
-    if (state_ == State::Wait) return "Waiting 10s at ID " + std::to_string(targetId_);
     return "Approaching ID " + std::to_string(targetId_);
 }

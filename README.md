@@ -130,26 +130,24 @@ Ultralytics weights/tools use AGPL-3.0 or an Enterprise license; see
 ## Person-following behaviour
 
 The tank pivots to find people, locks onto the first ID confirmed over three
-fresh frames, and steers toward that person. If several arrive together, the
-detector's confidence order decides which ID is first. It keeps that target
-instead of switching between people. A target taking up at least 65% of the
-image height stops forward movement immediately; three close frames confirm
-arrival. It marks the ID visited, waits **10 seconds** with the motors stopped,
-then approaches the next confirmed unvisited ID already in view. If there is
-none, it pivots to search. Detection continues during the wait.
+fresh frames, and continuously drives toward that person. If several arrive
+together, the detector's confidence order decides which ID is first. Both tracks
+run forward during following; steering reduces the inside track by at most 25%.
+The outside track uses the full `--speed` duty, with no reduction based on person
+size. There is no arrival stop, ten-second wait, or automatic handoff on arrival.
+It stays locked on the chosen ID until that track expires.
 
 IDs use bounding-box overlap and position, not face or appearance recognition.
 Brief misses retain an ID for two seconds; a missing target stops motion
 immediately and must be confirmed again before motion resumes. After expiration,
-the tank searches again. Visited IDs are skipped while retained; IDs are never
-reused within a run. Someone who leaves view and returns can receive a new ID.
-Crossing people, occlusion, fast turns, or poor detections can swap IDs. Restarting
-the program clears the visited history.
+the tank chooses another confirmed visible person, or pivots to search. IDs are
+never reused within a run. Someone who leaves view and returns can receive a new
+ID. Crossing people, occlusion, fast turns, or poor detections can swap IDs.
 
-Stopping uses apparent person height, **not measured distance**. Tune
-`--stop-height=0.65` using your camera placement; a smaller value stops sooner.
-There is no obstacle detection. Stops disable the bridge (coasting), so account
-for the tank's momentum when choosing the stopping threshold.
+`--stop-height` is accepted for command-line compatibility but has no effect.
+There is no obstacle detection or proximity stop: the tank continues forward
+even when very close to its target. Target loss, processing timeouts, program
+exit and GPIO errors still disable the motors. Disabling the bridge coasts.
 
 ## Wire the L298N to the Pi
 
@@ -220,6 +218,11 @@ direction, then enable driving:
 ./build/people_detector --drive=true --headless=true
 ```
 
+For more starting torque during continuous following, try
+`./build/people_detector --drive=true --speed=0.75`. This supplies 75% duty on
+both tracks when the target is centred, and at least 56.25% on the inside track
+when steering. Actual wheel speed depends on the motors, supply and load.
+
 If one motor runs backward, swap that motor's two OUT wires with power off, or
 use `--invert-left=true` / `--invert-right=true`. Options `--speed=0.30` and
 `--turn-speed=0.22` control PWM duty, not measured wheel speed. Adjust for the
@@ -236,8 +239,8 @@ software PWM on ENA/ENB.
 
 The Windows development machine cannot verify physical motor operation or build
 the full app without OpenCV/NCNN. Verify these on the target Pi. The navigation
-tests check ID retention, target loss, steering, arrival, the ten-second wait,
-visited-ID skipping and selecting another visible person. Simulated GPIO tests
+tests check ID retention, target loss, continuous forward steering, continued
+motion at close range, and selecting another visible person after target loss. Simulated GPIO tests
 check startup, PWM duty, polarity reversal, timeout shutdown, cleanup and GPIO
 failures; they cannot validate electrical operation. Run tests without
 the camera dependencies:
