@@ -41,8 +41,14 @@ int lgGpioWrite(int, int pin, int level) {
 }
 int lgTxPwm(int, int pin, float frequency, float duty, int, int) {
     std::lock_guard<std::mutex> lock(fakeMutex);
+    // Match lgpio: cancelling PWM on an idle output returns BAD_PWM_MICROS.
+    if (frequency == 0 && duties[pin] == 0) return -1;
     duties[pin] = frequency == 0 ? 0 : duty;
     return 0;
+}
+int lgTxBusy(int, int pin, int) {
+    std::lock_guard<std::mutex> lock(fakeMutex);
+    return duties[pin] != 0;
 }
 const char* lguErrorText(int) { return "simulated error"; }
 

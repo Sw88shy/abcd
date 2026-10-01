@@ -11,6 +11,12 @@ namespace {
 constexpr int ena = 18, in1 = 17, in2 = 27;
 constexpr int enb = 13, in3 = 23, in4 = 24;
 #ifdef HAVE_LGPIO
+int stopPwm(int handle, int pin) {
+    // lgpio rejects zero-length pulses when there is no active PWM to cancel.
+    const int busy = lgTxBusy(handle, pin, LG_TX_PWM);
+    if (busy <= 0) return busy;  // Propagate errors; idle needs no cancellation.
+    return lgTxPwm(handle, pin, 0, 0, 0, 0);
+}
 void check(int result) {
     if (result < 0) throw std::runtime_error(std::string("Motor GPIO error: ") + lguErrorText(result));
 }
@@ -70,7 +76,7 @@ void MotorDriver::motor(int enable, int positive, int negative, double speed, do
 #ifdef HAVE_LGPIO
     if (speed == previous) return;
     if (speed == 0 || previous == 0 || std::signbit(speed) != std::signbit(previous)) {
-        check(lgTxPwm(handle_, enable, 0, 0, 0, 0));
+        check(stopPwm(handle_, enable));
         check(lgGpioWrite(handle_, enable, 0));
         // Allow cancellation of software PWM before reversing direction.
         std::this_thread::sleep_for(std::chrono::milliseconds(15));
@@ -104,7 +110,7 @@ void MotorDriver::halt() noexcept {
     if (handle_ >= 0) {
         for (int pin : claimed_) {
             if (pin == ena || pin == enb) {
-                if (lgTxPwm(handle_, pin, 0, 0, 0, 0) < 0) failed_ = true;
+                if (stopPwm(handle_, pin) < 0) failed_ = true;
             }
             if (lgGpioWrite(handle_, pin, 0) < 0) failed_ = true;
         }
