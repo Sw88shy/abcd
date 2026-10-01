@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.16)
+project(usb_people_detector LANGUAGES CXX)
+
+find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc objdetect videoio highgui)
+add_executable(people_detector src/main.cpp)
+target_compile_features(people_detector PRIVATE cxx_std_17)
+target_include_directories(people_detector PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(people_detector PRIVATE ${OpenCV_LIBS})
+if(MSVC)
+    target_compile_options(people_detector PRIVATE /W4)
+else()
+    target_compile_options(people_detector PRIVATE -Wall -Wextra -Wpedantic)
+endif()
