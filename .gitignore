@@ -1,2 +1,7 @@
 /build/
 *.avi
+/models/
+/.venv/
+/third_party/
+/build-*/
+__pycache__/
