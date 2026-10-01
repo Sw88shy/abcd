@@ -60,7 +60,7 @@ void PersonTracker::markVisited(int id) {
 }
 
 PersonNavigation::PersonNavigation(double speed, double turnSpeed, double stopHeight)
-    : speed_(speed), turnSpeed_(turnSpeed) {
+    : speed_(speed), turnSpeed_(turnSpeed), stopHeight_(stopHeight) {
     if (!std::isfinite(speed) || speed <= 0 || speed > 1 ||
         !std::isfinite(turnSpeed) || turnSpeed <= 0 || turnSpeed > 1 ||
         !std::isfinite(stopHeight) || stopHeight <= 0 || stopHeight > 1) {
@@ -69,6 +69,10 @@ PersonNavigation::PersonNavigation(double speed, double turnSpeed, double stopHe
 }
 
 DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
+    if (state_ == State::Wait) {
+        if (now < waitUntil_) return {};
+        state_ = State::Approach;
+    }
     const auto& tracks = tracker.tracks();
     if (state_ == State::Search) {
         const PersonTrack* selected = nullptr;
@@ -79,6 +83,7 @@ DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
         }
         if (!selected) return {turnSpeed_, -turnSpeed_};
         targetId_ = selected->id;
+        pauseArmed_ = true;
         state_ = State::Approach;
     }
     const auto target = std::find_if(tracks.begin(), tracks.end(), [&](const PersonTrack& t) {
@@ -92,7 +97,15 @@ DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
     if (!target->visible || target->hits < 3) {
         return {};  // Never drive toward a stale box.
     }
-    // Continuous following: size never triggers arrival or reduces power.
+    // Pause once on entering the close zone. Rearm after moving away to avoid
+    // immediately starting another pause when the five seconds expire.
+    if (target->box.height <= stopHeight_ * 0.85) pauseArmed_ = true;
+    if (pauseArmed_ && target->box.height >= stopHeight_) {
+        pauseArmed_ = false;
+        waitUntil_ = now + 5.0;
+        state_ = State::Wait;
+        return {};
+    }
     // Both tracks run forward; the inside track keeps at least 75% of speed.
     const double error = std::clamp(2 * (target->box.x + target->box.width / 2 - 0.5), -1.0, 1.0);
     return {speed_ * (1.0 - 0.25 * std::max(-error, 0.0)),
@@ -100,6 +113,7 @@ DriveCommand PersonNavigation::update(PersonTracker& tracker, double now) {
 }
 
 std::string PersonNavigation::status() const {
+    if (state_ == State::Wait) return "Pausing 5s at ID " + std::to_string(targetId_);
     if (state_ == State::Search) return "Searching for unvisited ID";
     return "Approaching ID " + std::to_string(targetId_);
 }

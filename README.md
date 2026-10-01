@@ -134,8 +134,9 @@ fresh frames, and continuously drives toward that person. If several arrive
 together, the detector's confidence order decides which ID is first. Both tracks
 run forward during following; steering reduces the inside track by at most 25%.
 The outside track uses the full `--speed` duty, with no reduction based on person
-size. There is no arrival stop, ten-second wait, or automatic handoff on arrival.
-It stays locked on the chosen ID until that track expires.
+size. When the selected target fills at least 80% of image height, it stops for
+five seconds, then resumes following that same ID. It stays locked on the chosen
+ID until that track expires. There is no automatic handoff on arrival.
 
 IDs use bounding-box overlap and position, not face or appearance recognition.
 Brief misses retain an ID for two seconds; a missing target stops motion
@@ -144,10 +145,14 @@ the tank chooses another confirmed visible person, or pivots to search. IDs are
 never reused within a run. Someone who leaves view and returns can receive a new
 ID. Crossing people, occlusion, fast turns, or poor detections can swap IDs.
 
-`--stop-height` is accepted for command-line compatibility but has no effect.
-There is no obstacle detection or proximity stop: the tank continues forward
-even when very close to its target. Target loss, processing timeouts, program
-exit and GPIO errors still disable the motors. Disabling the bridge coasts.
+`--stop-height=0.80` sets the close-range pause threshold as a fraction of image
+height, not a measured distance. A smaller value pauses earlier. Camera placement,
+person height and pose affect this estimate. Detection continues during the
+five-second pause; timing uses a monotonic clock. The same ID must shrink below
+85% of the threshold before another close-range pause can trigger, preventing
+back-to-back pauses when it resumes. Selecting a new ID rearms the pause.
+There is no obstacle detection. Target loss, processing timeouts, program exit
+and GPIO errors still disable the motors. Disabling the bridge coasts.
 
 ## Wire the L298N to the Pi
 
@@ -246,8 +251,9 @@ software PWM on ENA/ENB.
 
 The Windows development machine cannot verify physical motor operation or build
 the full app without OpenCV/NCNN. Verify these on the target Pi. The navigation
-tests check ID retention, target loss, continuous forward steering, continued
-motion at close range, and selecting another visible person after target loss. Simulated GPIO tests
+tests check ID retention, target loss, forward steering, five-second pauses,
+resuming without an immediate second pause, rearming after moving away, and
+selecting another visible person after target loss. Simulated GPIO tests
 check startup, PWM duty, polarity reversal, timeout shutdown, cleanup and GPIO
 failures; they cannot validate electrical operation. Run tests without
 the camera dependencies:

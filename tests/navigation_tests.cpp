@@ -77,6 +77,39 @@ int main() {
         command = turning.update(left, 0.2);
         require(command.left > 0 && command.left < command.right,
                 "Person left of camera should steer left while both tracks drive forward");
+
+        PersonTracker close;
+        PersonNavigation pausing;
+        confirm(close, {person(0.5), person(0.85, 0.9)}, 0);
+        command = pausing.update(close, 0.2);
+        require(command.left > 0 && command.right > 0,
+                "A close non-target person must not pause the selected target");
+        close.update({person(0.5, 0.6), person(0.85, 0.9)}, 0.3);
+        pausing.update(close, 0.3);
+        close.update({person(0.5, 0.85), person(0.85, 0.9)}, 0.4);
+        require(stopped(pausing.update(close, 0.4)), "Selected target entering close zone must stop");
+        require(pausing.status().find("Pausing 5s") == 0, "Status must show five-second pause");
+        for (int i = 1; i <= 49; ++i) {
+            const double now = 0.4 + i * 0.1;
+            close.update({person(0.5, 0.85), person(0.85, 0.9)}, now);
+            require(stopped(pausing.update(close, now)), "Both motors must stay stopped for five seconds");
+        }
+        close.update({person(0.5, 0.85), person(0.85, 0.9)}, 5.4);
+        command = pausing.update(close, 5.4);
+        require(command.left > 0 && command.right > 0 && pausing.targetId() == 1,
+                "At five seconds resume driving toward the same ID");
+        close.update({person(0.5, 0.85), person(0.85, 0.9)}, 5.5);
+        require(!stopped(pausing.update(close, 5.5)), "Close box must not immediately retrigger pause");
+        close.update({person(0.5, 0.6), person(0.85, 0.9)}, 5.6);
+        pausing.update(close, 5.6);
+        close.update({person(0.5, 0.85), person(0.85, 0.9)}, 5.7);
+        require(stopped(pausing.update(close, 5.7)), "Moving away then returning must rearm pause");
+        close.update({}, 8.0);
+        require(stopped(pausing.update(close, 8.0)), "Target expiry must not interrupt the five-second pause");
+        require(stopped(pausing.update(close, 10.7)), "Expired target must not be driven toward after pause");
+        command = pausing.update(close, 10.8);
+        require(command.left > 0 && command.right < 0, "After pause with expired target resume searching");
+
         bool invalid = false;
         try { PersonNavigation bad(0.3, 0.22, 0); } catch (const std::invalid_argument&) { invalid = true; }
         require(invalid, "Invalid configuration must fail");

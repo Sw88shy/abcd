@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
         "{gpiochip |0| GPIO header chip number (check gpiodetect on Pi)}"
         "{speed |0.30| Maximum forward motor duty (0 to 1)}"
         "{turn-speed |0.22| Pivot motor duty (0 to 1)}"
-        "{stop-height |0.65| Legacy option (ignored in continuous following)}"
+        "{stop-height |0.80| Pause 5s when target reaches this fraction of image height}"
         "{motor-timeout |0.75| Stop motors after this many seconds without fresh processing}"
         "{invert-left |false| Reverse left motor polarity}"
         "{invert-right |false| Reverse right motor polarity}";
