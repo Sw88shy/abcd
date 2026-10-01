@@ -4,6 +4,7 @@
 #include "yolo_detector.h"
 #include "person_navigation.h"
 #include "motor_driver.h"
+#include "startup_check.h"
 #include <opencv2/videoio.hpp>
 
 #include <algorithm>
@@ -107,6 +108,7 @@ int main(int argc, char** argv) {
         if (!headless) cv::namedWindow(window, cv::WINDOW_NORMAL);
         MotorDriver motors(drive, gpiochip, invertLeft, invertRight, motorTimeout, &stopped);
         std::cout << (drive ? "Motor movement ENABLED.\n" : "Tracking preview: motors disabled (--drive=true to enable).\n");
+        if (drive) startupMovementCheck(motors, stopped);
         std::cout << "Camera opened. Press Q or Escape in the preview, or Ctrl+C to stop.\n";
         int previousCount = -1;
         std::string previousState;

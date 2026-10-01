@@ -218,6 +218,13 @@ direction, then enable driving:
 ./build/people_detector --drive=true --headless=true
 ```
 
+Each motor-enabled start performs a movement check before following people:
+left motor only for one second, right motor only for one second, then both
+forward for one second. The check uses 50% duty independently of `--speed`,
+honours both inversion flags, and stops for 250 ms between steps. The console
+labels each step. The watchdog is refreshed throughout, and Ctrl+C interrupts
+the check. Preview-only runs do not perform it.
+
 For more starting torque during continuous following, try
 `./build/people_detector --drive=true --speed=0.75`. This supplies 75% duty on
 both tracks when the target is centred, and at least 56.25% on the inside track
