@@ -1,8 +1,9 @@
-# Raspberry Pi 5 USB camera person detection
+# Raspberry Pi 5 person-following tank with L298N
 
 C++17 app using **YOLO26n + NCNN on the CPU**, with OpenCV for USB camera
 capture and preview. Draws green boxes, confidence scores, a count, and processing
 FPS. No AI accelerator is required. Detects the COCO person class (class 0).
+Adds temporary person IDs and optional two-motor tank control.
 
 ## Install on 64-bit Raspberry Pi OS
 
@@ -68,8 +69,8 @@ distant people, export a **640 × 640** model, which requires more processing:
 
 Try `--threshold=0.25` to detect more people or `--threshold=0.5` to reduce false
 positives. Default confidence is 0.35; overlap suppression defaults to
-`--iou=0.45`. It can still miss people or produce false positives; it does not
-recognize identities or track individuals.
+`--iou=0.45`. It can still miss people or produce false positives. Temporary
+tracking IDs do not recognise real-world identities.
 
 Options use `--name=value`:
 
@@ -125,3 +126,127 @@ References:
 
 Ultralytics weights/tools use AGPL-3.0 or an Enterprise license; see
 [Ultralytics licensing](https://www.ultralytics.com/license).
+
+## Person-following behaviour
+
+The tank pivots to find people, locks onto the first ID confirmed over three
+fresh frames, and steers toward that person. If several arrive together, the
+detector's confidence order decides which ID is first. It keeps that target
+instead of switching between people. A target taking up at least 65% of the
+image height stops forward movement immediately; three close frames confirm
+arrival. It marks the ID visited, waits **10 seconds** with the motors stopped,
+then approaches the next confirmed unvisited ID already in view. If there is
+none, it pivots to search. Detection continues during the wait.
+
+IDs use bounding-box overlap and position, not face or appearance recognition.
+Brief misses retain an ID for two seconds; a missing target stops motion
+immediately and must be confirmed again before motion resumes. After expiration,
+the tank searches again. Visited IDs are skipped while retained; IDs are never
+reused within a run. Someone who leaves view and returns can receive a new ID.
+Crossing people, occlusion, fast turns, or poor detections can swap IDs. Restarting
+the program clears the visited history.
+
+Stopping uses apparent person height, **not measured distance**. Tune
+`--stop-height=0.65` using your camera placement; a smaller value stops sooner.
+There is no obstacle detection. Stops disable the bridge (coasting), so account
+for the tank's momentum when choosing the stopping threshold.
+
+## Wire the L298N to the Pi
+
+Power off the Pi and motor supply before wiring. Numbers below are BCM GPIO
+numbers and physical positions on the Pi's **40-pin header**, including Pi 5.
+The camera should face forward between the tracks.
+
+| L298N terminal | Pi GPIO | Physical header pin | Purpose |
+| --- | --- | --- | --- |
+| IN1 | GPIO17 | 11 | Left direction |
+| IN2 | GPIO27 | 13 | Left direction |
+| ENA | GPIO18 | 12 | Left speed (software PWM) |
+| IN3 | GPIO23 | 16 | Right direction |
+| IN4 | GPIO24 | 18 | Right direction |
+| ENB | GPIO13 | 33 | Right speed (software PWM) |
+| GND | Ground | 6 | Shared ground |
+
+- Remove the **ENA and ENB jumpers** so the Pi can control speed and disable the
+  motors. Add a 10 kΩ pull-down resistor from each enable terminal to GND to keep
+  motors disabled before the app starts and after GPIO is released.
+- Connect the **left motor** to OUT1/OUT2 and the **right motor** to OUT3/OUT4.
+- Connect a separate motor supply's positive terminal to the driver's motor
+  supply terminal (often labelled `12V`, `VS`, or `VMS`), and its negative to GND.
+  Choose the voltage/current for your motors and module, allowing for L298N
+  voltage drop and motor stall current. Do not power the motors from Pi GPIO,
+  3.3V, or the Pi's 5V header. Power the Pi with its normal supply.
+- L298N logic needs 5V. On typical modules with a **5V-EN regulator jumper**,
+  removing that jumper allows a separate regulated 5V supply at the `5V` logic
+  terminal. Connect that supply's ground to the same GND. Confirm this against
+  your module's instructions; regulator jumper/terminal behaviour varies.
+  If instead using the module's onboard regulator, follow its permitted motor
+  supply range and leave its 5V terminal disconnected from the Pi.
+- Do not connect the driver's 5V terminal to a Pi GPIO or join its regulator
+  output to the Pi's 5V rail. Pi GPIO uses 3.3V; the L298 input-high threshold is
+  2.3V, so the Pi can drive the six logic inputs directly.
+
+Sources: [Pi GPIO documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html),
+[ST L298 datasheet](https://www.st.com/resource/en/datasheet/l298.pdf).
+
+## Build and run with motors
+
+Motor GPIO support uses **lgpio**, compatible with Pi 5's GPIO chip interface.
+The default build/run previews tracking and does not request GPIO lines.
+To build with motor support:
+
+```bash
+sudo apt install -y liblgpio-dev gpiod
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$PWD/third_party/ncnn-install" -DENABLE_MOTORS=ON
+cmake --build build -j2
+ctest --test-dir build --output-on-failure
+gpiodetect
+./build/people_detector
+```
+
+In `gpiodetect`, find the chip labelled **pinctrl-rp1** on Pi 5. Current Raspberry
+Pi OS normally uses gpiochip0; older kernels may use gpiochip4. Pass its number
+using `--gpiochip=4` if needed. Select the header chip, not another GPIO device.
+Your account needs access to `/dev/gpiochipN` (normally the `gpio` group on
+Raspberry Pi OS). If required, add it with `sudo usermod -aG gpio "$USER"` and
+log out/in; do not run the whole app as root just to access GPIO.
+
+First test with the tracks lifted clear of the floor. Check preview IDs and motor
+direction, then enable driving:
+
+```bash
+./build/people_detector --drive=true --gpiochip=0
+./build/people_detector --drive=true --headless=true
+```
+
+If one motor runs backward, swap that motor's two OUT wires with power off, or
+use `--invert-left=true` / `--invert-right=true`. Options `--speed=0.30` and
+`--turn-speed=0.22` control PWM duty, not measured wheel speed. Adjust for the
+motor's starting torque and your gearing.
+
+GPIO outputs initialise low. Q/Escape, Ctrl+C, normal exits and exceptions disable
+both motors. An independent watchdog disables them after 0.75 seconds without a
+new command, including a blocked capture/inference. A frame taking longer than
+that is discarded for navigation and logs a stopped status. If your Pi needs
+longer, tune `--motor-timeout=1.5`; this also increases the maximum delay before
+a stall stops movement. This is a software timeout, not a hardware emergency
+stop, and does not cover power loss or an unresponsive OS. lgpio produces 100 Hz
+software PWM on ENA/ENB.
+
+The Windows development machine cannot verify physical motor operation or build
+the full app without OpenCV/NCNN. Verify these on the target Pi. The navigation
+tests check ID retention, target loss, steering, arrival, the ten-second wait,
+visited-ID skipping and selecting another visible person. Simulated GPIO tests
+check startup, PWM duty, polarity reversal, timeout shutdown, cleanup and GPIO
+failures; they cannot validate electrical operation. Run tests without
+the camera dependencies:
+
+```bash
+cmake -S . -B build-tests -DBUILD_DETECTOR=OFF
+cmake --build build-tests
+ctest --test-dir build-tests --output-on-failure
+```
+
+GPIO implementation follows the [lgpio C API](https://github.com/joan2937/lg/blob/master/lgpio.h).
+Chip selection follows [Raspberry Pi GPIO best practices](https://pip-assets.raspberrypi.com/categories/685-app-notes-guides-whitepapers/documents/RP-006553-WP/A-history-of-GPIO-usage-on-Raspberry-Pi-devices-and-current-best-practices).
